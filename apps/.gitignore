@@ -1,0 +1,13 @@
+﻿# Node / Expo / Web build artifacts
+**/node_modules/
+**/.expo/
+**/dist/
+**/.vite/
+
+# Local env files in app packages
+**/.env
+**/.env.*
+
+# Local DB for API analytics
+api/db/*.db
+api/db/*.sqlite3

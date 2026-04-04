@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "AI Football Predictions",
+    "slug": "ai-football-predictions",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ]
+  }
+}
