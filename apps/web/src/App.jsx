@@ -12,6 +12,12 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
+  Legend,
 } from "recharts";
 import {
   BarChart3,
@@ -177,8 +183,24 @@ function UserDashboard() {
         // );
         // setComparison(data);
         setComparison({
-          home: { rank: 3, form: "W-W-D-L-W", avg_goals: 2.4, win_rate: 67, last5_goals: 12 },
-          away: { rank: 8, form: "D-W-W-L-D", avg_goals: 1.8, win_rate: 42, last5_goals: 9 },
+          home: {
+            rank: 2,
+            form: "W-W-D-L-W",
+            avg_goals: 2.4,
+            avg_conceded: 1.1,
+            win_rate: 67,
+            last5_goals: 12,
+            clean_sheet_rate: 40,
+          },
+          away: {
+            rank: 8,
+            form: "D-W-W-L-D",
+            avg_goals: 1.8,
+            avg_conceded: 1.5,
+            win_rate: 42,
+            last5_goals: 9,
+            clean_sheet_rate: 25,
+          },
         });
       } catch (err) {
         setComparison(null);
@@ -274,6 +296,53 @@ function UserDashboard() {
     if (rank <= 6) return "mid";
     return "low";
   }
+
+  function normalize(value, max) {
+    return Math.min((value / max) * 100, 100);
+  }
+
+  function formToScore(form) {
+    return form.split("-").reduce((acc, f) => {
+      if (f === "W") return acc + 3;
+      if (f === "D") return acc + 1;
+      return acc;
+    }, 0) * 6; // scale ~100
+  }
+
+  const radarData = comparison
+    ? [
+        {
+          subject: "Attack",
+          home: normalize(comparison.home.avg_goals, 3),
+          away: normalize(comparison.away.avg_goals, 3),
+        },
+        {
+          subject: "Defense",
+          home: normalize(1 / (comparison.home.avg_conceded || 1), 1),
+          away: normalize(1 / (comparison.away.avg_conceded || 1), 1),
+        },
+        {
+          subject: "Win Rate",
+          home: comparison.home.win_rate,
+          away: comparison.away.win_rate,
+        },
+        {
+          subject: "Form",
+          home: formToScore(comparison.home.form),
+          away: formToScore(comparison.away.form),
+        },
+        {
+          subject: "Goal Power",
+          home: normalize(comparison.home.last5_goals, 15),
+          away: normalize(comparison.away.last5_goals, 15),
+        },
+        {
+          subject: "Stability",
+          home: normalize(comparison.home.clean_sheet_rate || 0, 100),
+          away: normalize(comparison.away.clean_sheet_rate || 0, 100),
+        },
+      ]
+    : [];
 
   return (
     <div className="role-content">
@@ -402,6 +471,56 @@ function UserDashboard() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+                {comparison && (
+                  <div className="radar-container">
+                    <h4 className="radar-title">Team Performance Radar</h4>
+
+                    <ResponsiveContainer width="100%" height={300}>
+                      <RadarChart data={radarData}>
+                        <defs>
+                          {/* Gradient Home */}
+                          <linearGradient id="homeGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#3ddc97" stopOpacity={0.8} />
+                            <stop offset="100%" stopColor="#4cc9f0" stopOpacity={0.3} />
+                          </linearGradient>
+
+                          {/* Gradient Away */}
+                          <linearGradient id="awayGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#f94144" stopOpacity={0.8} />
+                            <stop offset="100%" stopColor="#f3722c" stopOpacity={0.3} />
+                          </linearGradient>
+                        </defs>
+
+                        <PolarGrid stroke="#2a4a6f" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: "#ccc", fontSize: 12 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} />
+
+                        <Radar
+                          name={selectedMatch.home_team}
+                          dataKey="home"
+                          stroke="#3ddc97"
+                          fill="url(#homeGradient)"
+                          fillOpacity={0.6}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                        />
+
+                        <Radar
+                          name={selectedMatch.away_team}
+                          dataKey="away"
+                          stroke="#f94144"
+                          fill="url(#awayGradient)"
+                          fillOpacity={0.6}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                        />
+
+                        <Tooltip />
+                        <Legend />
+                      </RadarChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
               </>

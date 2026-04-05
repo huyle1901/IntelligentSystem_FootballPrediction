@@ -469,3 +469,16 @@ td {
   background: #f94144;
   color: #3a0000;
 }
+
+/* Radar chart */
+.radar-container {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.radar-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
