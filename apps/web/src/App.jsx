@@ -104,6 +104,7 @@ function UserDashboard() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
     async function loadLeagues() {
@@ -626,6 +627,48 @@ function UserDashboard() {
       }}>
         Last updated: {lastUpdated.toLocaleTimeString()} ({lastUpdated.toLocaleDateString()})
       </div>
+
+      <div className="report-footer">
+        <button
+          className="report-btn"
+          onClick={() => setShowReport(true)}
+        >
+          ⚠️ Report an issue
+        </button>
+      </div>
+
+      {/* ✅ MODAL */}
+      {showReport && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Report an Issue</h3>
+
+            <label>Type</label>
+            <select
+              value={reportType}
+              onChange={(e) => setReportType(e.target.value)}
+            >
+              <option>Wrong prediction</option>
+              <option>Incorrect stats</option>
+              <option>Missing data</option>
+              <option>UI bug</option>
+              <option>Other</option>
+            </select>
+
+            <label>Description</label>
+            <textarea
+              value={reportText}
+              onChange={(e) => setReportText(e.target.value)}
+            />
+
+            <div className="modal-actions">
+              <button onClick={() => setShowReport(false)}>Cancel</button>
+              <button className="primary">Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
