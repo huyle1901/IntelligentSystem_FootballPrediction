@@ -96,6 +96,7 @@ function UserDashboard() {
 
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(new Date());
 
   useEffect(() => {
     async function loadLeagues() {
@@ -103,6 +104,7 @@ function UserDashboard() {
         const data = await fetchJson("/user/leagues", "user");
         const items = data.items || [];
         setLeagues(items);
+        setLastUpdated(new Date());
         if (items.length > 0) {
           setSelectedLeague(items[0].code);
         }
@@ -325,15 +327,15 @@ function UserDashboard() {
       )}
 
       {userView === "teams" && (
-        <div className="two-cols">
+        <>
+          <div className="two-cols">
           <div className="card">
             <SectionTitle title="Teams" subtitle="Click team to see team and player info" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="text-input"
-              placeholder="Search team..."
-            />
+              placeholder="Search team..." />
             <div className="chips team-chips">
               {filteredTeams.map((team) => (
                 <button
@@ -406,7 +408,19 @@ function UserDashboard() {
             )}
           </div>
         </div>
+        </>
       )}
+
+      <div style={{
+        marginTop: "32px",
+        paddingTop: "16px",
+        borderTop: "1px solid var(--border)",
+        fontSize: "12px",
+        color: "var(--muted)",
+        textAlign: "right",
+      }}>
+        Last updated: {lastUpdated.toLocaleTimeString()} ({lastUpdated.toLocaleDateString()})
+      </div>
     </div>
   );
 }
