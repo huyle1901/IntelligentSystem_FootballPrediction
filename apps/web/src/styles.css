@@ -383,3 +383,89 @@ td {
     grid-template-columns: 1fr;
   }
 }
+
+/* === Team comparison === */
+.comparison-box {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.comparison-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.form-badge span {
+  margin-right: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Form colors */
+.badge-w { background: #3ddc97; color: #062a1a; }
+.badge-d { background: #f9c74f; color: #3a2e00; }
+.badge-l { background: #f94144; color: #3a0000; }
+
+/* Stat bars */
+.stat-row {
+  margin: 10px 0;
+}
+
+.stat-label {
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.bar {
+  height: 10px;
+  background: #1e3a5f;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bar-home {
+  height: 100%;
+  background: linear-gradient(90deg, #3ddc97, #4cc9f0);
+}
+
+.stat-values {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+/* Team header */
+.team-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Rank badge */
+.rank-badge {
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Rank colors */
+.rank-top {
+  background: linear-gradient(90deg, #ffd700, #ffb703);
+  color: #3a2e00;
+}
+
+.rank-mid {
+  background: #4cc9f0;
+  color: #002a3a;
+}
+
+.rank-low {
+  background: #f94144;
+  color: #3a0000;
+}

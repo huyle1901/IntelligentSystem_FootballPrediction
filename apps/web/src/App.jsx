@@ -83,6 +83,7 @@ function UserDashboard() {
   const [matches, setMatches] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [prediction, setPrediction] = useState(null);
+  const [comparison, setComparison] = useState(null);
 
   const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -166,6 +167,28 @@ function UserDashboard() {
   }, [selectedMatch, selectedLeague]);
 
   useEffect(() => {
+    if (!selectedMatch || !selectedLeague) return;
+
+    async function loadComparison() {
+      try {
+        // const data = await fetchJson(
+        //   `/user/matches/${selectedMatch.match_id}/comparison?league=${selectedLeague}`,
+        //   "user"
+        // );
+        // setComparison(data);
+        setComparison({
+          home: { rank: 3, form: "W-W-D-L-W", avg_goals: 2.4, win_rate: 67, last5_goals: 12 },
+          away: { rank: 8, form: "D-W-W-L-D", avg_goals: 1.8, win_rate: 42, last5_goals: 9 },
+        });
+      } catch (err) {
+        setComparison(null);
+      }
+    }
+
+    loadComparison();
+  }, [selectedMatch, selectedLeague]);
+
+  useEffect(() => {
     if (!selectedTeam || !selectedLeague) return;
 
     async function loadTeam() {
@@ -246,6 +269,12 @@ function UserDashboard() {
     return teams.filter((team) => team.toLowerCase().includes(search.toLowerCase()));
   }, [teams, search]);
 
+  function getRankClass(rank) {
+    if (rank <= 3) return "top";
+    if (rank <= 6) return "mid";
+    return "low";
+  }
+
   return (
     <div className="role-content">
       <div className="stats-grid">
@@ -318,6 +347,63 @@ function UserDashboard() {
                 </div>
                 <div className="badge">{prediction?.prediction || "unknown"}</div>
                 {prediction?.reason && <div className="warn-box">{prediction.reason}</div>}
+                {comparison && (
+                  <div className="comparison-box">
+                    <div className="comparison-header">
+                      <div>
+                        <div className="team-header">
+                          <h4>{selectedMatch.home_team}</h4>
+                          <span className={`rank-badge rank-${getRankClass(comparison.home.rank)}`}>
+                            #{comparison.home.rank}
+                          </span>
+                        </div>
+                        <div className="form-badge">
+                          {comparison.home.form.split("-").map((f, i) => (
+                            <span key={i} className={`badge-${f.toLowerCase()}`}>{f}</span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="team-header">
+                          <h4>{selectedMatch.away_team}</h4>
+                          <span className={`rank-badge rank-${getRankClass(comparison.away.rank)}`}>
+                            #{comparison.away.rank}
+                          </span>
+                        </div>
+                        <div className="form-badge">
+                          {comparison.away.form.split("-").map((f, i) => (
+                            <span key={i} className={`badge-${f.toLowerCase()}`}>{f}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {[
+                      { label: "Avg Goals", key: "avg_goals" },
+                      { label: "Win %", key: "win_rate" },
+                      { label: "Last 5 Goals", key: "last5_goals" },
+                    ].map((stat) => {
+                      const home = comparison.home[stat.key];
+                      const away = comparison.away[stat.key];
+                      const total = home + away || 1;
+                      const homePct = (home / total) * 100;
+
+                      return (
+                        <div key={stat.key} className="stat-row">
+                          <div className="stat-label">{stat.label}</div>
+                          <div className="bar">
+                            <div className="bar-home" style={{ width: `${homePct}%` }} />
+                          </div>
+                          <div className="stat-values">
+                            <span>{home}</span>
+                            <span>{away}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </>
             ) : (
               <div className="muted">Select a match first.</div>
