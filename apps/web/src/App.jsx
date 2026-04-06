@@ -33,6 +33,70 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
+const DEVICE_USER_ID_STORAGE_KEY = "afp_device_user_id";
+const AUTH_USER_STORAGE_KEY = "afp_auth_user";
+
+function generateUserId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `user_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getOrCreateDeviceUserId() {
+  if (typeof window === "undefined") {
+    return "anonymous";
+  }
+
+  const existing = window.localStorage.getItem(DEVICE_USER_ID_STORAGE_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const nextId = generateUserId();
+  window.localStorage.setItem(DEVICE_USER_ID_STORAGE_KEY, nextId);
+  return nextId;
+}
+
+function readAuthUser() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveAuthUser(user) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+}
+
+function clearAuthUser() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+}
+
+function getCurrentUserId() {
+  const authUser = readAuthUser();
+  if (authUser?.user_id) {
+    return authUser.user_id;
+  }
+  return getOrCreateDeviceUserId();
+}
+
 const ROLE_TABS = [
   { id: "user", label: "User", icon: UserRound },
   { id: "scientist", label: "Data Scientist", icon: LayoutDashboard },
@@ -41,7 +105,7 @@ const ROLE_TABS = [
 
 async function fetchJson(path, role, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "X-Role": role, ...(options.headers || {}) },
+    headers: { "X-Role": role, "X-User-Id": getCurrentUserId(), ...(options.headers || {}) },
     method: options.method || "GET",
     body: options.body,
   });
@@ -81,7 +145,98 @@ function SectionTitle({ title, subtitle }) {
   );
 }
 
-function UserDashboard() {
+
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("login");
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [registerRole, setRegisterRole] = useState("user");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const path = mode === "register" ? "/user/auth/register" : "/user/auth/login";
+      const body =
+        mode === "register"
+          ? { username, password, display_name: displayName || username, role: registerRole }
+          : { username, password };
+
+      const payload = await fetchJson(path, "user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const user = payload.user;
+      saveAuthUser(user);
+      onAuthenticated(user);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="auth-shell">
+      <div className="card auth-card">
+        <h2>{mode === "register" ? "Create account" : "Login"}</h2>
+        <p className="muted">Use an account so admin can manage activity per user.</p>
+
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label>Username</label>
+          <input className="text-input" value={username} onChange={(e) => setUsername(e.target.value)} required />
+
+          {mode === "register" && (
+            <>
+              <label>Display name</label>
+              <input className="text-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+
+              <label>Role</label>
+              <select className="text-input" value={registerRole} onChange={(e) => setRegisterRole(e.target.value)}>
+                <option value="user">user</option>
+                <option value="data_scientist">data_scientist</option>
+                <option value="admin">admin</option>
+              </select>
+            </>
+          )}
+
+          <label>Password</label>
+          <input
+            className="text-input"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+
+          {error && <div className="error-box">{error}</div>}
+
+          <button className="role-btn active" type="submit" disabled={loading}>
+            {loading ? "Please wait..." : mode === "register" ? "Register" : "Login"}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 10 }}>
+          <button
+            className="role-btn"
+            onClick={() => setMode(mode === "register" ? "login" : "register")}
+            type="button"
+          >
+            {mode === "register" ? "Have account? Login" : "No account? Register"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function UserDashboard({ authUser }) {
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState("");
   const [userView, setUserView] = useState("matches");
@@ -105,10 +260,13 @@ function UserDashboard() {
   const [search, setSearch] = useState("");
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [showReport, setShowReport] = useState(false);
+  const [reportType, setReportType] = useState("Wrong prediction");
+  const [reportText, setReportText] = useState("");
 
   useEffect(() => {
     async function loadLeagues() {
       try {
+        await fetchJson(`/user/session?display_name=${encodeURIComponent(authUser?.display_name || authUser?.username || "Web User")}`, "user", { method: "POST" });
         const data = await fetchJson("/user/leagues", "user");
         const items = data.items || [];
         setLeagues(items);
@@ -126,6 +284,15 @@ function UserDashboard() {
   useEffect(() => {
     if (!selectedLeague) return;
 
+    // Reset team-dependent state immediately to avoid stale team/league race.
+    setSelectedTeam("");
+    setTeamOverview(null);
+    setTeamPlayers([]);
+    setTeamId(null);
+    setSelectedPlayer(null);
+    setPlayerDetail(null);
+    setPlayerWarning("");
+
     async function loadLeagueData() {
       try {
         setError("");
@@ -142,14 +309,7 @@ function UserDashboard() {
 
         setSelectedMatch(matchItems.length > 0 ? matchItems[0] : null);
         setPrediction(null);
-
         setSelectedTeam(teamItems.length > 0 ? teamItems[0] : "");
-        setTeamOverview(null);
-        setTeamPlayers([]);
-        setTeamId(null);
-        setSelectedPlayer(null);
-        setPlayerDetail(null);
-        setPlayerWarning("");
       } catch (err) {
         setError(String(err));
       }
@@ -174,58 +334,63 @@ function UserDashboard() {
   }, [selectedMatch, selectedLeague]);
 
   useEffect(() => {
-    if (!selectedMatch || !selectedLeague) return;
+    if (!selectedMatch || !selectedLeague) {
+      setComparison(null);
+      return;
+    }
+
+    let cancelled = false;
 
     async function loadComparison() {
       try {
-        // const data = await fetchJson(
-        //   `/user/matches/${selectedMatch.match_id}/comparison?league=${selectedLeague}`,
-        //   "user"
-        // );
-        // setComparison(data);
-        setComparison({
-          home: {
-            rank: 2,
-            form: "W-W-D-L-W",
-            avg_goals: 2.4,
-            avg_conceded: 1.1,
-            win_rate: 67,
-            last5_goals: 12,
-            clean_sheet_rate: 40,
-          },
-          away: {
-            rank: 8,
-            form: "D-W-W-L-D",
-            avg_goals: 1.8,
-            avg_conceded: 1.5,
-            win_rate: 42,
-            last5_goals: 9,
-            clean_sheet_rate: 25,
-          },
-        });
+        const data = await fetchJson(
+          `/user/matches/${selectedMatch.match_id}/comparison?league=${selectedLeague}`,
+          "user"
+        );
+        if (!cancelled) {
+          setComparison(data.comparison || null);
+        }
       } catch (err) {
-        setComparison(null);
+        if (!cancelled) {
+          setComparison(null);
+        }
       }
     }
 
     loadComparison();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedMatch, selectedLeague]);
 
   useEffect(() => {
-    if (!selectedTeam || !selectedLeague) return;
+    if (!selectedLeague || !selectedTeam) return;
+    if (teams.length === 0) return;
+
+    // Guard against stale selection when switching leagues quickly.
+    if (!teams.includes(selectedTeam)) {
+      setSelectedTeam(teams[0] || "");
+      return;
+    }
+
+    let cancelled = false;
 
     async function loadTeam() {
       try {
+        setError("");
         const overview = await fetchJson(
           `/user/teams/${encodeURIComponent(selectedTeam)}/overview?league=${selectedLeague}`,
           "user"
         );
+        if (cancelled) return;
         setTeamOverview(overview);
 
         const playersPayload = await fetchJson(
           `/user/teams/${encodeURIComponent(selectedTeam)}/players?league=${selectedLeague}`,
           "user"
         );
+        if (cancelled) return;
+
         const items = playersPayload.items || [];
         setTeamPlayers(items);
         setTeamId(playersPayload.team_id || null);
@@ -235,12 +400,17 @@ function UserDashboard() {
         setPlayerDetail(firstPlayer);
         setPlayerWarning(playersPayload.warning || "");
       } catch (err) {
-        setError(String(err));
+        if (!cancelled) {
+          setError(String(err));
+        }
       }
     }
 
     loadTeam();
-  }, [selectedTeam, selectedLeague]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTeam, selectedLeague, teams]);
 
   useEffect(() => {
     if (!selectedPlayer || !selectedLeague || !selectedTeam) return;
@@ -293,8 +463,10 @@ function UserDashboard() {
   }, [teams, search]);
 
   function getRankClass(rank) {
-    if (rank <= 3) return "top";
-    if (rank <= 6) return "mid";
+    const value = Number(rank);
+    if (!Number.isFinite(value)) return "low";
+    if (value <= 3) return "top";
+    if (value <= 6) return "mid";
     return "low";
   }
 
@@ -303,6 +475,7 @@ function UserDashboard() {
   }
 
   function formToScore(form) {
+    if (!form) return 0;
     return form.split("-").reduce((acc, f) => {
       if (f === "W") return acc + 3;
       if (f === "D") return acc + 1;
@@ -424,7 +597,7 @@ function UserDashboard() {
                         <div className="team-header">
                           <h4>{selectedMatch.home_team}</h4>
                           <span className={`rank-badge rank-${getRankClass(comparison.home.rank)}`}>
-                            #{comparison.home.rank}
+                            #{Number.isFinite(Number(comparison.home?.rank)) ? comparison.home.rank : "-"}
                           </span>
                         </div>
                         <div className="form-badge">
@@ -438,7 +611,7 @@ function UserDashboard() {
                         <div className="team-header">
                           <h4>{selectedMatch.away_team}</h4>
                           <span className={`rank-badge rank-${getRankClass(comparison.away.rank)}`}>
-                            #{comparison.away.rank}
+                            #{Number.isFinite(Number(comparison.away?.rank)) ? comparison.away.rank : "-"}
                           </span>
                         </div>
                         <div className="form-badge">
@@ -758,17 +931,27 @@ function ScientistDashboard() {
 function AdminDashboard() {
   const [topTeams, setTopTeams] = useState([]);
   const [topPlayers, setTopPlayers] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [userActivity, setUserActivity] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [teams, players] = await Promise.all([
+        const [teams, players, usersPayload] = await Promise.all([
           fetchJson("/admin/analytics/top-teams", "admin"),
           fetchJson("/admin/analytics/top-players", "admin"),
+          fetchJson("/admin/analytics/users", "admin"),
         ]);
+        const userItems = usersPayload.items || [];
+
         setTopTeams(teams.items || []);
         setTopPlayers(players.items || []);
+        setUsers(userItems);
+        if (userItems.length > 0) {
+          setSelectedUserId(userItems[0].user_id);
+        }
       } catch (err) {
         setError(String(err));
       }
@@ -776,13 +959,31 @@ function AdminDashboard() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!selectedUserId) {
+      setUserActivity(null);
+      return;
+    }
+
+    async function loadUserActivity() {
+      try {
+        const payload = await fetchJson(`/admin/analytics/users/${encodeURIComponent(selectedUserId)}`, "admin");
+        setUserActivity(payload);
+      } catch (err) {
+        setError(String(err));
+      }
+    }
+
+    loadUserActivity();
+  }, [selectedUserId]);
+
   return (
     <div className="role-content">
       <div className="stats-grid">
         <StatCard title="Top teams tracked" value={topTeams.length} sub="By user views" Icon={Users} />
         <StatCard title="Top players tracked" value={topPlayers.length} sub="By player profile views" Icon={Star} />
+        <StatCard title="Users tracked" value={users.length} sub="Distinct local users" Icon={UserRound} />
         <StatCard title="Most viewed team" value={topTeams[0]?.team_name || "-"} sub="Current leaderboard" Icon={ShieldCheck} />
-        <StatCard title="Most viewed player" value={topPlayers[0]?.player_name || "-"} sub="Current leaderboard" Icon={UserRound} />
       </div>
 
       {error && <div className="error-box">{error}</div>}
@@ -815,12 +1016,134 @@ function AdminDashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      <div className="card">
+        <SectionTitle title="User Management (MVP)" subtitle="Users are local IDs generated per device/browser" />
+
+        <div className="chips">
+          {users.map((user) => (
+            <button
+              key={user.user_id}
+              className={`chip ${selectedUserId === user.user_id ? "chip-active" : ""}`}
+              onClick={() => setSelectedUserId(user.user_id)}
+            >
+              {(user.display_name || user.user_id).slice(0, 24)} ({user.total_views})
+            </button>
+          ))}
+          {users.length === 0 && <span className="muted">No users tracked yet.</span>}
+        </div>
+
+        {userActivity?.user && (
+          <div style={{ marginTop: 14 }}>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Display</th>
+                    <th>Total</th>
+                    <th>Team</th>
+                    <th>Player</th>
+                    <th>Match</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{userActivity.user.user_id}</td>
+                    <td>{userActivity.user.display_name || "-"}</td>
+                    <td>{userActivity.summary?.total_views ?? 0}</td>
+                    <td>{userActivity.summary?.team_views ?? 0}</td>
+                    <td>{userActivity.summary?.player_views ?? 0}</td>
+                    <td>{userActivity.summary?.match_views ?? 0}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="two-cols" style={{ marginTop: 12 }}>
+              <div className="card">
+                <SectionTitle title="User Top Teams" subtitle="Most viewed teams by selected user" />
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>League</th>
+                        <th>Team</th>
+                        <th>Views</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(userActivity.top_teams || []).map((item, idx) => (
+                        <tr key={`${item.team_name}-${idx}`}>
+                          <td>{item.league}</td>
+                          <td>{item.team_name}</td>
+                          <td>{item.views}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card">
+                <SectionTitle title="User Top Players" subtitle="Most viewed players by selected user" />
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>League</th>
+                        <th>Player</th>
+                        <th>Views</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(userActivity.top_players || []).map((item, idx) => (
+                        <tr key={`${item.player_name}-${idx}`}>
+                          <td>{item.league || "-"}</td>
+                          <td>{item.player_name}</td>
+                          <td>{item.views}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
 export default function App() {
+  const [authUser, setAuthUser] = useState(() => readAuthUser());
   const [role, setRole] = useState("user");
+
+  const accountRole = authUser?.role || "user";
+  const allowedTabIds =
+    accountRole === "admin"
+      ? ["user", "scientist", "admin"]
+      : accountRole === "data_scientist"
+      ? ["user", "scientist"]
+      : ["user"];
+
+  const visibleTabs = ROLE_TABS.filter((tab) => allowedTabIds.includes(tab.id));
+
+  useEffect(() => {
+    if (!allowedTabIds.includes(role)) {
+      setRole(allowedTabIds[0] || "user");
+    }
+  }, [role, accountRole]);
+
+  function handleLogout() {
+    clearAuthUser();
+    setAuthUser(null);
+    setRole("user");
+  }
+
+  if (!authUser) {
+    return <AuthScreen onAuthenticated={setAuthUser} />;
+  }
 
   return (
     <div className="app-shell">
@@ -831,10 +1154,13 @@ export default function App() {
           <p className="muted">
             Updated to latest data and retrained models. UI rebuilt from your JSX mockup, adapted for live API data.
           </p>
+          <p className="small muted">
+            Current user: {authUser.display_name || authUser.username || authUser.user_id} ({authUser.user_id}) - role: {accountRole}
+          </p>
         </div>
 
         <div className="role-tabs">
-          {ROLE_TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const active = role === tab.id;
             return (
@@ -843,10 +1169,11 @@ export default function App() {
               </button>
             );
           })}
+          <button className="role-btn" onClick={handleLogout}>Switch User</button>
         </div>
       </header>
 
-      {role === "user" && <UserDashboard />}
+      {role === "user" && <UserDashboard authUser={authUser} />}
       {role === "scientist" && <ScientistDashboard />}
       {role === "admin" && <AdminDashboard />}
     </div>

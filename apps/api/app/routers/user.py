@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from ..constants import VALID_LEAGUES
 from ..dependencies import require_role
 
 router = APIRouter(prefix="/user", tags=["user"])
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    display_name: str | None = Field(default=None, max_length=100)
+    role: str = Field(default="user", max_length=32)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+
+
+def _request_user_id(request: Request) -> str:
+    raw = request.headers.get("X-User-Id", "")
+    value = raw.strip()
+    return value if value else "anonymous"
 
 
 def _resolve_upcoming_matches(request: Request, league: str | None, limit: int) -> list[dict]:
@@ -46,6 +65,50 @@ def _resolve_team_id(
         return team_id
 
     return request.app.state.football_client.resolve_team_id(league=league, team_name=team_name)
+
+
+@router.post("/auth/register")
+def register_user(
+    payload: RegisterRequest,
+    request: Request,
+):
+    try:
+        user = request.app.state.analytics.register_user(
+            username=payload.username,
+            password=payload.password,
+            display_name=payload.display_name,
+            role=payload.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"user": user, "status": "registered"}
+
+
+@router.post("/auth/login")
+def login_user(
+    payload: LoginRequest,
+    request: Request,
+):
+    user = request.app.state.analytics.authenticate_user(
+        username=payload.username,
+        password=payload.password,
+    )
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    return {"user": user, "status": "logged_in"}
+
+
+@router.post("/session")
+def create_or_touch_session(
+    request: Request,
+    display_name: str | None = Query(default=None),
+    _role: str = Depends(require_role("user")),
+):
+    user_id = _request_user_id(request)
+    normalized = request.app.state.analytics.ensure_user(user_id=user_id, display_name=display_name)
+    return {"user_id": normalized, "status": "ok"}
 
 
 @router.get("/leagues")
@@ -92,7 +155,11 @@ def get_team_overview(
     if team_name not in teams:
         raise HTTPException(status_code=404, detail=f"Team '{team_name}' not found in league '{league}'.")
 
-    request.app.state.analytics.track_team_view(league=league, team_name=team_name)
+    request.app.state.analytics.track_team_view(
+        league=league,
+        team_name=team_name,
+        user_id=_request_user_id(request),
+    )
 
     recent_matches = request.app.state.repository.get_recent_team_matches(league=league, team_name=team_name)
     upcoming = _resolve_upcoming_matches(request=request, league=league, limit=80)
@@ -125,7 +192,11 @@ def get_match_prediction(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found.")
 
-    request.app.state.analytics.track_match_view(league=league, match_id=match_id)
+    request.app.state.analytics.track_match_view(
+        league=league,
+        match_id=match_id,
+        user_id=_request_user_id(request),
+    )
     prediction = request.app.state.predictor.predict_match(
         league=league,
         home_team=match["home_team"],
@@ -135,6 +206,34 @@ def get_match_prediction(
     return {
         "match": match,
         "prediction": prediction,
+    }
+
+
+@router.get("/matches/{match_id}/comparison")
+def get_match_comparison(
+    match_id: str,
+    request: Request,
+    league: str = Query(...),
+    _role: str = Depends(require_role("user")),
+):
+    if league not in VALID_LEAGUES:
+        raise HTTPException(status_code=400, detail=f"Unsupported league '{league}'.")
+
+    matches = _resolve_upcoming_matches(request=request, league=league, limit=150)
+    match = request.app.state.repository.find_match_by_id(match_id, matches)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found.")
+
+    comparison = request.app.state.repository.get_match_comparison(
+        league=league,
+        home_team=match["home_team"],
+        away_team=match["away_team"],
+        reference_date=match.get("date"),
+    )
+
+    return {
+        "match": match,
+        "comparison": comparison,
     }
 
 
@@ -215,5 +314,10 @@ def track_player_view(
     team_name: str | None = Query(default=None),
     _role: str = Depends(require_role("user")),
 ):
-    request.app.state.analytics.track_player_view(player_name=player_name, team_name=team_name, league=league)
+    request.app.state.analytics.track_player_view(
+        player_name=player_name,
+        team_name=team_name,
+        league=league,
+        user_id=_request_user_id(request),
+    )
     return {"status": "tracked"}
