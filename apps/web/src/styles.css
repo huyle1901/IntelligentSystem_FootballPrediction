@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
   color-scheme: dark;
   --bg: #06122a;
@@ -261,6 +261,17 @@ body {
   background: rgba(61, 220, 151, 0.15);
 }
 
+
+.model-select-row {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.model-select-row .text-input {
+  margin-bottom: 0;
+}
 .text-input {
   width: 100%;
   margin-bottom: 10px;
@@ -382,6 +393,17 @@ td {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* === Match explanation === */
+.explain-box {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.explain-note {
+  margin-bottom: 8px;
 }
 
 /* === Team comparison === */
@@ -519,3 +541,4 @@ td {
   display: grid;
   gap: 8px;
 }
+

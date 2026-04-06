@@ -1,7 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -103,6 +101,32 @@ const ROLE_TABS = [
   { id: "admin", label: "Admin", icon: ShieldCheck },
 ];
 
+const MODEL_OPTIONS = [
+  { value: "ensemble", label: "Ensemble" },
+  { value: "random_forest", label: "Random Forest" },
+];
+
+function modelLabel(modelType) {
+  return MODEL_OPTIONS.find((item) => item.value === modelType)?.label || modelType || "unknown";
+}
+
+function formatFeatureLabel(feature) {
+  if (!feature) return "-";
+
+  const compact = feature
+    .replace("Last5", "L5 ")
+    .replace("Home", "H ")
+    .replace("Away", "A ")
+    .replace("Over2.5", "O2.5")
+    .replace("Goals", "G")
+    .replace("Conceded", "Con")
+    .replace("Scored", "Sco")
+    .replace("Perc", "%")
+    .replace("Count", "Cnt")
+    .replace("Avg", "Avg ");
+
+  return compact.length > 20 ? `${compact.slice(0, 20)}...` : compact;
+}
 async function fetchJson(path, role, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { "X-Role": role, "X-User-Id": getCurrentUserId(), ...(options.headers || {}) },
@@ -245,6 +269,8 @@ function UserDashboard({ authUser }) {
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [comparison, setComparison] = useState(null);
+  const [predictionExplanation, setPredictionExplanation] = useState(null);
+  const [selectedModelType, setSelectedModelType] = useState("ensemble");
 
   const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -309,6 +335,7 @@ function UserDashboard({ authUser }) {
 
         setSelectedMatch(matchItems.length > 0 ? matchItems[0] : null);
         setPrediction(null);
+        setPredictionExplanation(null);
         setSelectedTeam(teamItems.length > 0 ? teamItems[0] : "");
       } catch (err) {
         setError(String(err));
@@ -323,7 +350,7 @@ function UserDashboard({ authUser }) {
 
     async function loadPrediction() {
       try {
-        const data = await fetchJson(`/user/matches/${selectedMatch.match_id}/prediction?league=${selectedLeague}`, "user");
+        const data = await fetchJson(`/user/matches/${selectedMatch.match_id}/prediction?league=${selectedLeague}&model_type=${selectedModelType}`, "user");
         setPrediction(data.prediction);
       } catch (err) {
         setPrediction({ prediction: "unknown", reason: String(err) });
@@ -331,7 +358,41 @@ function UserDashboard({ authUser }) {
     }
 
     loadPrediction();
-  }, [selectedMatch, selectedLeague]);
+  }, [selectedMatch, selectedLeague, selectedModelType]);
+
+  useEffect(() => {
+    if (!selectedMatch || !selectedLeague) {
+      setPredictionExplanation(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPredictionExplanation() {
+      try {
+        const data = await fetchJson(
+          `/user/matches/${selectedMatch.match_id}/explain?league=${selectedLeague}&model_type=${selectedModelType}&top_n=8`,
+          "user"
+        );
+        if (!cancelled) {
+          setPredictionExplanation(data.explanation || null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPredictionExplanation({
+            model_type: selectedModelType,
+            items: [],
+            note: String(err),
+          });
+        }
+      }
+    }
+
+    loadPredictionExplanation();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMatch, selectedLeague, selectedModelType]);
 
   useEffect(() => {
     if (!selectedMatch || !selectedLeague) {
@@ -524,7 +585,7 @@ function UserDashboard({ authUser }) {
         <StatCard title="Upcoming matches" value={matches.length} sub="From selected league" Icon={CalendarDays} />
         <StatCard title="Selected league" value={selectedLeague || "-"} sub="Live API + fallback" Icon={Target} />
         <StatCard title="Teams loaded" value={teams.length} sub="Current processed data" Icon={Users} />
-        <StatCard title="Prediction status" value={prediction?.prediction || "-"} sub="Over / Under 2.5" Icon={BarChart3} />
+        <StatCard title="Prediction model" value={modelLabel(selectedModelType)} sub={prediction?.prediction || "-"} Icon={BarChart3} />
       </div>
 
       {error && <div className="error-box">{error}</div>}
@@ -574,6 +635,19 @@ function UserDashboard({ authUser }) {
 
           <div className="card highlight">
             <SectionTitle title="Match prediction" subtitle="Model output for Over/Under 2.5" />
+            <div className="model-select-row">
+              <label className="muted small" htmlFor="model-type-select">Prediction model</label>
+              <select
+                id="model-type-select"
+                className="text-input"
+                value={selectedModelType}
+                onChange={(e) => setSelectedModelType(e.target.value)}
+              >
+                {MODEL_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </div>
             {selectedMatch ? (
               <>
                 <div className="match-title large">{selectedMatch.home_team} vs {selectedMatch.away_team}</div>
@@ -589,7 +663,31 @@ function UserDashboard({ authUser }) {
                   </div>
                 </div>
                 <div className="badge">{prediction?.prediction || "unknown"}</div>
+                <div className="muted small" style={{ marginTop: 6 }}>Model: {modelLabel(prediction?.model_type || selectedModelType)}</div>
                 {prediction?.reason && <div className="warn-box">{prediction.reason}</div>}
+
+                {predictionExplanation && (
+                  <div className="explain-box">
+                    <h4 className="radar-title">Why this prediction</h4>
+                    <div className="muted small explain-note">{predictionExplanation.note || "Top features affecting this match prediction."}</div>
+                    {predictionExplanation.items?.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={predictionExplanation.items} layout="vertical" margin={{ left: 4, right: 12 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#2c3f5e" />
+                          <XAxis type="number" stroke="#9ab0cc" />
+                          <YAxis type="category" dataKey="feature" width={150} stroke="#9ab0cc" tick={{ fontSize: 12 }} tickFormatter={formatFeatureLabel} />
+                          <Tooltip contentStyle={{ background: "#0f2038", border: "1px solid #2c3f5e", borderRadius: 12 }} />
+                          <Bar dataKey="score" fill="#90be6d" radius={[0, 8, 8, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="muted small" style={{ marginTop: 8 }}>
+                        No per-match feature explanation for this model. Use Random Forest to view local feature impact.
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {comparison && (
                   <div className="comparison-box">
                     <div className="comparison-header">
@@ -806,11 +904,11 @@ function UserDashboard({ authUser }) {
           className="report-btn"
           onClick={() => setShowReport(true)}
         >
-          ⚠️ Report an issue
+          Report an issue
         </button>
       </div>
 
-      {/* ✅ MODAL */}
+      {/* Report modal */}
       {showReport && (
         <div className="modal-overlay">
           <div className="modal">
@@ -849,12 +947,18 @@ function UserDashboard({ authUser }) {
 function ScientistDashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [error, setError] = useState("");
+  const [importanceLeague, setImportanceLeague] = useState("E0");
+  const [featureImportance, setFeatureImportance] = useState([]);
 
   useEffect(() => {
     async function loadData() {
       try {
         const data = await fetchJson("/data-scientist/dashboard", "data_scientist");
         setDashboard(data);
+        const leagues = (data.items || []).map((item) => item.league);
+        if (leagues.length > 0 && !leagues.includes(importanceLeague)) {
+          setImportanceLeague(leagues[0]);
+        }
       } catch (err) {
         setError(String(err));
       }
@@ -862,47 +966,80 @@ function ScientistDashboard() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!importanceLeague) return;
+
+    async function loadFeatureImportance() {
+      try {
+        const data = await fetchJson(
+          `/data-scientist/feature-importance?league=${importanceLeague}&model_type=random_forest&top_n=12`,
+          "data_scientist"
+        );
+        setFeatureImportance(data.items || []);
+      } catch (err) {
+        setFeatureImportance([]);
+        setError(String(err));
+      }
+    }
+
+    loadFeatureImportance();
+  }, [importanceLeague]);
+
   const chartData = (dashboard?.items || []).map((item) => ({
     league: item.league,
-    accuracy: item.accuracy || 0,
-    precision: item.precision || 0,
-    recall: item.recall || 0,
+    ensemble_accuracy: item.models?.ensemble?.accuracy || 0,
+    random_forest_accuracy: item.models?.random_forest?.accuracy || 0,
   }));
+
+  const modelSummaries = dashboard?.model_summaries || [];
+  const selectedLeagueName =
+    (dashboard?.items || []).find((item) => item.league === importanceLeague)?.league_name || importanceLeague;
 
   return (
     <div className="role-content">
       <div className="stats-grid">
-        <StatCard title="Average accuracy" value={dashboard?.average_accuracy ?? "N/A"} sub="Across leagues" Icon={BarChart3} />
-        <StatCard title="Leagues" value={(dashboard?.items || []).length} sub="Production models" Icon={LayoutDashboard} />
+        <StatCard
+          title="Ensemble avg acc"
+          value={modelSummaries.find((item) => item.model_type === "ensemble")?.average_accuracy ?? "N/A"}
+          sub="Across leagues"
+          Icon={BarChart3}
+        />
+        <StatCard
+          title="RF avg acc"
+          value={modelSummaries.find((item) => item.model_type === "random_forest")?.average_accuracy ?? "N/A"}
+          sub="Across leagues"
+          Icon={LayoutDashboard}
+        />
+        <StatCard title="Leagues" value={(dashboard?.items || []).length} sub="Production models" Icon={Target} />
         <StatCard title="Generated at" value={dashboard?.generated_at?.slice(0, 10) || "-"} sub="UTC timestamp" Icon={CalendarDays} />
-        <StatCard title="Scope" value="Over/Under 2.5" sub="Binary classification" Icon={Target} />
       </div>
 
       {error && <div className="error-box">{error}</div>}
 
       <div className="two-cols">
         <div className="card chart-card">
-          <SectionTitle title="Performance by league" subtitle="Accuracy / precision / recall" />
+          <SectionTitle title="Accuracy by league" subtitle="Compare Ensemble vs Random Forest" />
           <ResponsiveContainer width="100%" height={320}>
-            <AreaChart data={chartData}>
+            <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2c3f5e" />
               <XAxis dataKey="league" stroke="#9ab0cc" />
               <YAxis stroke="#9ab0cc" />
               <Tooltip contentStyle={{ background: "#0f2038", border: "1px solid #2c3f5e", borderRadius: 12 }} />
-              <Area type="monotone" dataKey="accuracy" stroke="#3ddc97" fill="#3ddc97" fillOpacity={0.2} />
-              <Area type="monotone" dataKey="precision" stroke="#4cc9f0" fillOpacity={0} />
-              <Area type="monotone" dataKey="recall" stroke="#f9c74f" fillOpacity={0} />
-            </AreaChart>
+              <Legend />
+              <Bar dataKey="ensemble_accuracy" name="Ensemble" fill="#4cc9f0" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="random_forest_accuracy" name="Random Forest" fill="#3ddc97" radius={[8, 8, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
         <div className="card">
-          <SectionTitle title="Metrics table" subtitle="Latest computed metrics" />
+          <SectionTitle title="Metrics table" subtitle="Performance of both models per league" />
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>League</th>
+                  <th>Model</th>
                   <th>Acc</th>
                   <th>Prec</th>
                   <th>Recall</th>
@@ -910,24 +1047,70 @@ function ScientistDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {(dashboard?.items || []).map((item) => (
-                  <tr key={item.league}>
-                    <td>{item.league_name}</td>
-                    <td>{item.accuracy ?? "-"}</td>
-                    <td>{item.precision ?? "-"}</td>
-                    <td>{item.recall ?? "-"}</td>
-                    <td>{item.f1 ?? "-"}</td>
-                  </tr>
-                ))}
+                {(dashboard?.items || []).flatMap((item) => {
+                  const ensemble = item.models?.ensemble || {};
+                  const randomForest = item.models?.random_forest || {};
+                  return [
+                    (
+                      <tr key={`${item.league}-ensemble`}>
+                        <td>{item.league_name}</td>
+                        <td>Ensemble</td>
+                        <td>{ensemble.accuracy ?? "-"}</td>
+                        <td>{ensemble.precision ?? "-"}</td>
+                        <td>{ensemble.recall ?? "-"}</td>
+                        <td>{ensemble.f1 ?? "-"}</td>
+                      </tr>
+                    ),
+                    (
+                      <tr key={`${item.league}-rf`}>
+                        <td>{item.league_name}</td>
+                        <td>Random Forest</td>
+                        <td>{randomForest.accuracy ?? "-"}</td>
+                        <td>{randomForest.precision ?? "-"}</td>
+                        <td>{randomForest.recall ?? "-"}</td>
+                        <td>{randomForest.f1 ?? "-"}</td>
+                      </tr>
+                    ),
+                  ];
+                })}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      <div className="card chart-card">
+        <SectionTitle title="Feature Importance (Random Forest)" subtitle="Top features used by RF model" />
+        <div className="model-select-row">
+          <label className="muted small" htmlFor="importance-league">League</label>
+          <select
+            id="importance-league"
+            className="text-input"
+            value={importanceLeague}
+            onChange={(e) => setImportanceLeague(e.target.value)}
+          >
+            {(dashboard?.items || []).map((item) => (
+              <option key={item.league} value={item.league}>
+                {item.league} - {item.league_name}
+              </option>
+            ))}
+          </select>
+          <span className="muted small">Selected: {selectedLeagueName}</span>
+        </div>
+
+        <ResponsiveContainer width="100%" height={420}>
+          <BarChart data={featureImportance} layout="vertical" margin={{ left: 20, right: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#2c3f5e" />
+            <XAxis type="number" stroke="#9ab0cc" />
+            <YAxis type="category" dataKey="feature" width={220} stroke="#9ab0cc" />
+            <Tooltip contentStyle={{ background: "#0f2038", border: "1px solid #2c3f5e", borderRadius: 12 }} />
+            <Bar dataKey="importance" fill="#f9c74f" radius={[0, 8, 8, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
-
 function AdminDashboard() {
   const [topTeams, setTopTeams] = useState([]);
   const [topPlayers, setTopPlayers] = useState([]);
@@ -1179,4 +1362,7 @@ export default function App() {
     </div>
   );
 }
+
+
+
 

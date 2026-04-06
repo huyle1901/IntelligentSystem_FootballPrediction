@@ -1,4 +1,4 @@
-﻿"""User-facing endpoints for mobile/web app."""
+"""User-facing endpoints for mobile/web app."""
 
 from __future__ import annotations
 
@@ -182,6 +182,7 @@ def get_match_prediction(
     match_id: str,
     request: Request,
     league: str = Query(...),
+    model_type: str = Query(default="ensemble"),
     _role: str = Depends(require_role("user")),
 ):
     if league not in VALID_LEAGUES:
@@ -201,11 +202,43 @@ def get_match_prediction(
         league=league,
         home_team=match["home_team"],
         away_team=match["away_team"],
+        model_type=model_type,
     )
 
     return {
         "match": match,
         "prediction": prediction,
+    }
+
+
+@router.get("/matches/{match_id}/explain")
+def get_match_explanation(
+    match_id: str,
+    request: Request,
+    league: str = Query(...),
+    model_type: str = Query(default="random_forest"),
+    top_n: int = Query(default=8, ge=5, le=20),
+    _role: str = Depends(require_role("user")),
+):
+    if league not in VALID_LEAGUES:
+        raise HTTPException(status_code=400, detail=f"Unsupported league '{league}'.")
+
+    matches = _resolve_upcoming_matches(request=request, league=league, limit=150)
+    match = request.app.state.repository.find_match_by_id(match_id, matches)
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found.")
+
+    explanation = request.app.state.predictor.explain_match_features(
+        league=league,
+        home_team=match["home_team"],
+        away_team=match["away_team"],
+        model_type=model_type,
+        top_n=top_n,
+    )
+
+    return {
+        "match": match,
+        "explanation": explanation,
     }
 
 
@@ -321,3 +354,4 @@ def track_player_view(
         user_id=_request_user_id(request),
     )
     return {"status": "tracked"}
+

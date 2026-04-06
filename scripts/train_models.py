@@ -1,4 +1,4 @@
-﻿"""Train models to predict Over2.5 football outcomes."""
+"""Train models to predict Over2.5 football outcomes."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import os
 import pickle
 import warnings
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,11 @@ from sklearn.metrics import accuracy_score, f1_score, make_scorer, precision_sco
 from sklearn.model_selection import HalvingGridSearchCV, KFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from xgboost import XGBClassifier
+
+try:
+    from xgboost import XGBClassifier
+except Exception:  # pragma: no cover - optional dependency in some environments
+    XGBClassifier = None
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -36,6 +41,13 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--n_splits", type=int, default=5, help="KFold splits for cross-validation.")
     parser.add_argument("--voting", type=str, choices=["soft", "hard"], default="soft", help="Voting strategy.")
+    parser.add_argument(
+        "--train_mode",
+        type=str,
+        choices=["random_forest", "ensemble", "both"],
+        default="both",
+        help="Train random_forest only, ensemble only, or both.",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +81,42 @@ def get_scorer(metric_choice: str):
     return make_scorer(accuracy_score)
 
 
+def save_model(output_dir: str, league_name: str, suffix: str, model: Any) -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    model_filename = os.path.join(output_dir, f"{league_name}_{suffix}.pkl")
+    with open(model_filename, "wb") as file:
+        pickle.dump(model, file)
+    return model_filename
+
+
+def tune_estimator(
+    model_name: str,
+    model: Any,
+    param_grid: dict,
+    X: np.ndarray,
+    y: np.ndarray,
+    cv: KFold,
+    scorer,
+) -> Any:
+    print(f"Evaluating {model_name}...")
+    grid_search = HalvingGridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=cv,
+        scoring=scorer,
+        verbose=0,
+        n_jobs=1,
+        error_score="raise",
+    )
+    grid_search.fit(X, y)
+
+    best_estimator = grid_search.best_estimator_
+    cv_score = cross_val_score(best_estimator, X, y, cv=cv, scoring=scorer)
+    print(f"{model_name} - {scorer._score_func.__name__}: {np.mean(cv_score):.4f} +/- {np.std(cv_score):.4f}")
+    print(f"Best parameters for {model_name}: {grid_search.best_params_}")
+    return best_estimator
+
+
 def train_and_save_models(
     X: np.ndarray,
     y: np.ndarray,
@@ -77,11 +125,48 @@ def train_and_save_models(
     metric_choice: str,
     voting: str = "soft",
     n_splits: int = 5,
+    train_mode: str = "both",
 ) -> None:
     scorer = get_scorer(metric_choice)
     cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
-    models: dict[str, tuple[object, dict]] = {
+    rf_estimator = None
+    if train_mode in {"random_forest", "both"}:
+        rf_estimator = tune_estimator(
+            model_name="Random Forest",
+            model=RandomForestClassifier(random_state=42),
+            param_grid={"n_estimators": [80, 120, 180], "max_depth": [5, 7, 9, 12], "bootstrap": [True]},
+            X=X,
+            y=y,
+            cv=cv,
+            scorer=scorer,
+        )
+        rf_path = save_model(trained_models_output_dir, league_name, "random_forest", rf_estimator)
+        print(f"Random Forest model saved to {rf_path}")
+
+    if train_mode == "random_forest":
+        return
+
+    best_estimators: dict[str, Any] = {}
+    if rf_estimator is None:
+        try:
+            rf_estimator = tune_estimator(
+                model_name="Random Forest",
+                model=RandomForestClassifier(random_state=42),
+                param_grid={"n_estimators": [80, 120, 180], "max_depth": [5, 7, 9, 12], "bootstrap": [True]},
+                X=X,
+                y=y,
+                cv=cv,
+                scorer=scorer,
+            )
+            rf_path = save_model(trained_models_output_dir, league_name, "random_forest", rf_estimator)
+            print(f"Random Forest model saved to {rf_path}")
+        except Exception as exc:
+            print(f"Skipping Random Forest due to error: {exc}")
+    if rf_estimator is not None:
+        best_estimators["Random Forest"] = rf_estimator
+
+    models: dict[str, tuple[Any, dict]] = {
         "Logistic Regression": (
             LogisticRegression(random_state=42),
             {
@@ -101,15 +186,7 @@ def train_and_save_models(
         ),
         "SVM": (
             SVC(probability=True),
-            {"C": [0.1, 1, 10], "kernel": ["linear", "rbf", "poly"], "degree": [2, 3, 4, 5]},
-        ),
-        "Random Forest": (
-            RandomForestClassifier(random_state=42),
-            {"n_estimators": [50, 100, 200], "max_depth": [3, 5, 7, 9], "bootstrap": [True]},
-        ),
-        "XGBoost": (
-            XGBClassifier(tree_method="hist", eval_metric="logloss"),
-            {"n_estimators": [50, 100, 150, 200], "max_depth": [3, 5, 7, 9], "learning_rate": [0.01, 0.1, 0.2]},
+            {"C": [0.1, 1, 10], "kernel": ["linear", "rbf", "poly"], "degree": [2, 3, 4]},
         ),
         "HistGradientBoosting": (
             HistGradientBoostingClassifier(random_state=42),
@@ -123,32 +200,31 @@ def train_and_save_models(
         ),
     }
 
-    best_estimators: dict[str, object] = {}
+    if XGBClassifier is not None:
+        models["XGBoost"] = (
+            XGBClassifier(tree_method="hist", eval_metric="logloss"),
+            {"n_estimators": [50, 100, 150], "max_depth": [3, 5, 7], "learning_rate": [0.01, 0.1, 0.2]},
+        )
+    else:
+        print("Skipping XGBoost because it is not available in this environment.")
 
     for model_name, (model, param_grid) in models.items():
-        print(f"Evaluating {model_name}...")
         try:
-            grid_search = HalvingGridSearchCV(
-                estimator=model,
+            best_estimators[model_name] = tune_estimator(
+                model_name=model_name,
+                model=model,
                 param_grid=param_grid,
+                X=X,
+                y=y,
                 cv=cv,
-                scoring=scorer,
-                verbose=0,
-                n_jobs=1,
-                error_score="raise",
+                scorer=scorer,
             )
-            grid_search.fit(X, y)
-            cv_score = cross_val_score(grid_search.best_estimator_, X, y, cv=cv, scoring=scorer)
-            best_estimators[model_name] = grid_search.best_estimator_
-            print(f"{model_name} - {scorer._score_func.__name__}: {np.mean(cv_score):.4f} ± {np.std(cv_score):.4f}")
-            print(f"Best parameters for {model_name}: {grid_search.best_params_}")
         except Exception as exc:
             print(f"Skipping {model_name} due to error: {exc}")
 
     if len(best_estimators) < 2:
-        raise RuntimeError(f"Not enough trained estimators for league {league_name}.")
+        raise RuntimeError(f"Not enough trained estimators for league {league_name} to build ensemble.")
 
-    estimators = []
     alias_map = {
         "Logistic Regression": "lr",
         "KNN": "knn",
@@ -157,20 +233,17 @@ def train_and_save_models(
         "XGBoost": "xgb",
         "HistGradientBoosting": "hgb",
     }
-    for name, estimator in best_estimators.items():
-        estimators.append((alias_map[name], estimator))
+
+    estimators = [(alias_map[name], estimator) for name, estimator in best_estimators.items() if name in alias_map]
 
     print("Training Voting Classifier ensemble...")
     voting_clf = VotingClassifier(estimators=estimators, voting=voting)
     voting_clf.fit(X, y)
     cv_scores = cross_val_score(voting_clf, X, y, cv=cv, scoring=scorer)
-    print(f"Voting Classifier - {scorer._score_func.__name__}: {np.mean(cv_scores):.4f} ± {np.std(cv_scores):.4f}")
+    print(f"Voting Classifier - {scorer._score_func.__name__}: {np.mean(cv_scores):.4f} +/- {np.std(cv_scores):.4f}")
 
-    os.makedirs(trained_models_output_dir, exist_ok=True)
-    model_filename = os.path.join(trained_models_output_dir, f"{league_name}_voting_classifier.pkl")
-    with open(model_filename, "wb") as file:
-        pickle.dump(voting_clf, file)
-    print(f"Model saved to {model_filename}")
+    model_filename = save_model(trained_models_output_dir, league_name, "voting_classifier", voting_clf)
+    print(f"Ensemble model saved to {model_filename}")
 
 
 def main() -> None:
@@ -190,6 +263,7 @@ def main() -> None:
                 args.metric_choice,
                 args.voting,
                 args.n_splits,
+                args.train_mode,
             )
     except Exception as exc:
         raise RuntimeError(f"An error occurred while training models: {exc}") from exc
@@ -197,3 +271,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
