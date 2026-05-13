@@ -8,14 +8,31 @@ Example:
 from __future__ import annotations
 
 import argparse
+from io import StringIO
 import os
+from pathlib import Path
 import re
 from datetime import datetime
 
 import pandas as pd
+import requests
+from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 VALID_LEAGUES = ["E0", "E1", "E2", "E3", "EC", "I1", "I2", "D1", "D2", "SP1", "SP2", "F1", "F2"]
+REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+    "Accept": "text/csv,application/csv,text/plain,*/*",
+}
+
+
+def load_environment() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    load_dotenv(dotenv_path=project_root / ".env")
+    load_dotenv(dotenv_path=Path.home() / ".env")
 
 
 def season_code(start_year_full: int) -> str:
@@ -51,8 +68,36 @@ def validate_seasons(seasons: list[str]) -> None:
             )
 
 
-def download_and_merge_data(leagues: list[str], seasons: list[str], raw_data_output_dir: str) -> None:
+def create_session() -> requests.Session:
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers.update(REQUEST_HEADERS)
+    return session
+
+
+def download_csv(session: requests.Session, url: str) -> pd.DataFrame:
+    response = session.get(url, timeout=30)
+    response.raise_for_status()
+    return pd.read_csv(StringIO(response.text))
+
+
+def download_and_merge_data(
+    leagues: list[str],
+    seasons: list[str],
+    raw_data_output_dir: str,
+) -> None:
     os.makedirs(raw_data_output_dir, exist_ok=True)
+    session = create_session()
 
     for league in leagues:
         league_dfs: list[pd.DataFrame] = []
@@ -62,7 +107,7 @@ def download_and_merge_data(leagues: list[str], seasons: list[str], raw_data_out
         for season in seasons:
             url = f"https://www.football-data.co.uk/mmz4281/{season}/{league}.csv"
             try:
-                df = pd.read_csv(url)
+                df = download_csv(session, url)
                 if df.empty:
                     print(f"No rows from {url}")
                     continue
@@ -94,6 +139,7 @@ def download_and_merge_data(leagues: list[str], seasons: list[str], raw_data_out
 
 
 def parse_arguments() -> argparse.Namespace:
+    load_environment()
     parser = argparse.ArgumentParser(description="Download and merge football data from multiple leagues and seasons.")
     parser.add_argument("--leagues", nargs="+", required=True, help="List of league acronyms (e.g., E0 I1 SP1).")
     parser.add_argument(

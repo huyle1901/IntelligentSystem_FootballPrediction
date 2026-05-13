@@ -1,378 +1,221 @@
 # AI Football Prediction System
 
-A full-stack machine learning application for predicting football match outcomes with a FastAPI backend, React web interface, and React Native mobile app.
+Web-based machine learning application for predicting football match Over/Under 2.5 goals. The system includes a FastAPI backend, a React/Vite web frontend, PostgreSQL support for Docker, and offline scripts for data acquisition, preprocessing, and model training.
 
-## 📋 Prerequisites
+## Tech Stack
 
-### System Requirements
-- **Operating System:**
-  - Linux (Ubuntu 20.04+ recommended)
-  - macOS (10.14+)
-  - Windows 10/11 (WSL2 recommended for better compatibility)
-- **Git** - Version control
-- **Terminal/CLI:**
-  - Linux: bash, zsh, or similar
-  - macOS: Terminal, iTerm2, or similar
-  - Windows: PowerShell, WSL2 Terminal, or Git Bash
+| Layer | Technology |
+|---|---|
+| Web | React, Vite, Recharts |
+| API | FastAPI, Uvicorn |
+| ML/Data | pandas, NumPy, scikit-learn, XGBoost, mRMR |
+| Local DB | SQLite fallback |
+| Docker DB | PostgreSQL |
+| Python env | uv, Python 3.10 |
 
-### Python Stack (Conda)
-- **Python** 3.10
-- **pip** (latest)
-- **Miniconda/Anaconda** - For Python environment management
+## Project Structure
 
-### Python Packages (managed by conda)
-| Package | Version |
-|---------|---------|
-| fastapi | 0.116.0 |
-| uvicorn[standard] | 0.33.0 |
-| requests | ≥2.32 |
-| python-dotenv | ≥1.0.1 |
-| pandas | ≥2.0.3 |
-| numpy | ≥1.24.4 |
-| scipy | ≥1.10.1 |
-| scikit-learn | ≥1.3.2 |
-| xgboost | ≥2.1.4 |
-| mrmr-selection | ≥0.2.8 |
-| invoke | ≥2.2 |
-
-### GPU Support (Optional)
-- **CUDA** 11.2
-- **cuDNN** 8.1.0
-
-### Node.js Stack (Frontend & Mobile)
-| Package | Version |
-|---------|---------|
-| Node.js | 18+ (20+ recommended) |
-| npm | 8+ (10+ recommended) |
-
-### Node.js Packages
-**Web App (Vite + React)**
-| Package | Version |
-|---------|---------|
-| react | 19.1.1 |
-| react-dom | 19.1.1 |
-| vite | 7.1.3 |
-| lucide-react | 0.542.0 |
-| recharts | 3.2.1 |
-
-**Mobile App (Expo + React Native)**
-| Package | Version |
-|---------|---------|
-| react | 19.0.0 |
-| react-native | 0.79.3 |
-| react-native-web | 0.20.0 |
-| expo | ~53.0.0 |
-| @expo/metro-runtime | ~5.0.5 |
-
-## 🚀 Quick Start with Conda
-
-### 1. Install Miniconda (if not installed)
-
-#### Linux
-
-```bash
-# Download Miniconda
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-
-# Install
-bash Miniconda3-latest-Linux-x86_64.sh
-
-# Initialize conda
-source ~/miniconda3/bin/activate
+```text
+apps/
+  api/                 FastAPI backend
+  web/                 React web app
+scripts/               Data and ML pipeline scripts
+data/
+  raw/                 Downloaded historical CSV files
+  processed/           Preprocessed training CSV files
+  next_matches.json    Upcoming matches used by the web app
+models/                Trained .pkl models
+docker-compose.yml     Web + API + PostgreSQL stack
+run.sh                 Helper script for setup, pipeline, and services
 ```
 
-#### macOS
+## Environment
+
+Create a local `.env` from the example:
 
 ```bash
-# Option 1: Using Homebrew (recommended)
-brew install miniconda3
-
-# Option 2: Using curl and bash
-curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -o ~/miniconda.sh
-bash ~/miniconda.sh
-rm ~/miniconda.sh
-
-# Option 3: Using curl for ARM64 (M1/M2/M3 Macs)
-curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o ~/miniconda.sh
-bash ~/miniconda.sh
-rm ~/miniconda.sh
-
-# Initialize conda
-source ~/miniconda3/bin/activate
-
-# After installation, verify:
-conda --version
+cp .env.example .env
 ```
 
-#### Windows
-
-
-```powershell
-# Option 1: Using PowerShell (64-bit)
-# Download from: https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe
-# Then run the installer and follow the GUI
-
-# Option 2: Using WSL2 (Linux subsystem)
-# Use the Linux instructions above in WSL terminal
-
-# Option 3: Using Chocolatey (if installed)
-choco install miniconda3
-
-# After installation, open a new PowerShell or Command Prompt and verify:
-conda --version
-```
-
-### 2. Create Conda Environment
+Important variables:
 
 ```bash
-# Navigate to project root
-cd YOUR_PATH/IntelligentSystem_FootballPrediction
-
-# Create environment from YAML
-conda env create -f conda/aifootball_predictions.yaml
-
-# Activate environment
-conda activate aifootball_predictions
-
-# Verify Python version
-python --version  # Should be 3.10.x
+API_FOOTBALL_DATA=
+DATABASE_URL=
 ```
 
-### 3. Run Data Pipeline (Optional - if no data exists)
+Notes:
+
+- `API_FOOTBALL_DATA` is used for football-data.org features such as upcoming matches and player data.
+- Historical CSV acquisition uses football-data.co.uk and does not require an API key.
+- `.env` is ignored by git and should not be committed.
+
+## Quick Start with uv
+
+Install dependencies:
 
 ```bash
-# Still in conda environment
-cd YOUR_PATH/IntelligentSystem_FootballPrediction
+uv sync
+```
 
-# 3.1 Acquire raw data
-python scripts/data_acquisition.py \
+Run the full pipeline from scratch:
+
+```bash
+./run.sh pipeline
+```
+
+This runs:
+
+```text
+data acquisition -> preprocessing -> model training
+```
+
+Expected generated files:
+
+```text
+data/raw/E0_merged.csv
+data/processed/E0_merged_preprocessed.csv
+models/E0_voting_classifier.pkl
+models/E0_random_forest.pkl
+```
+
+The same pattern is generated for `I1`, `SP1`, `F1`, and `D1`.
+
+## Pipeline Commands
+
+Run each step manually:
+
+```bash
+./run.sh acquire
+./run.sh preprocess
+./run.sh train
+```
+
+Or run the underlying commands directly:
+
+```bash
+uv run python scripts/data_acquisition.py \
   --leagues E0 I1 SP1 F1 D1 \
   --seasons 2526 2425 2324 \
   --raw_data_output_dir data/raw
 
-# 3.2 Preprocess data
-python scripts/data_preprocessing.py \
+uv run python scripts/data_preprocessing.py \
   --raw_data_input_dir data/raw \
   --processed_data_output_dir data/processed
 
-# 3.3 Train models
-python scripts/train_models.py \
+uv run python scripts/train_models.py \
   --processed_data_input_dir data/processed \
-  --trained_models_output_dir models
+  --trained_models_output_dir models \
+  --train_mode both
 ```
 
-**Note:** Data acquisition requires downloading from external sources. This may take several minutes.
+Training all models can take a while. You only need to retrain when the raw data, features, or model logic changes.
 
-### 4. Run the Application
+## Run with Docker
 
-Open **2 separate terminals** and activate conda in each:
+Start the full web stack:
 
 ```bash
-conda activate aifootball_predictions
+./run.sh docker
 ```
 
-#### Terminal 1 - Backend API
+or:
 
 ```bash
-cd YOUR_PATH/IntelligentSystem_FootballPrediction/apps/api
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+docker compose up --build
 ```
 
-**Output:**
-```bash
-INFO:     Will watch for changes in these directories: ['/home/quan/Documents/MasterProgram/HK252/IntelligentSystems/Assignment/IntelligentSystem_FootballPrediction/apps/api']
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [61022] using WatchFiles
-INFO:     Started server process [61024]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-```
-
-#### Terminal 2 - Web App
-
-```bash
-cd YOUR_PATH/IntelligentSystem_FootballPrediction/apps/web
-npm install  # First time only
-npm run dev
-```
-
-**Output:**
-```bash
-  VITE v7.3.1  ready in 341 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: http://192.168.1.102:5173/
-  ➜  press h + enter to show help
-```
-
-### 5. Access the Application
+Services:
 
 | Component | URL |
-|-----------|-----|
-| **Web App** | http://localhost:5173 |
-| **API Documentation** | http://localhost:8000/docs |
-| **API Health** | http://localhost:8000/health |
+|---|---|
+| Web App | http://localhost:5173 |
+| API Docs | http://localhost:8000/docs |
+| API Health | http://localhost:8000/health |
+| PostgreSQL | localhost:5432 |
 
-## 📱 Mobile App (Optional)
-
-```bash
-cd YOUR_PATH/IntelligentSystem_FootballPrediction/apps/mobile
-npm install
-npm run start
-
-# Choose platform:
-# Press 'a' for Android emulator
-# Press 'i' for iOS simulator
-# Press 'w' for web browser
-```
-
-## 🔧 Environment Management
-
-### View Environment Info
+Docker Compose uses PostgreSQL:
 
 ```bash
-# List all conda environments
-conda env list
-
-# View active environment
-echo $CONDA_DEFAULT_ENV
-
-# List installed packages
-conda list
-pip list
+DATABASE_URL=postgresql://football:football@postgres:5432/football_ai
 ```
 
-### Update Environment
+The API container reads local generated artifacts through mounted folders:
+
+```text
+./data   -> /app/data
+./models -> /app/models
+```
+
+Stop Docker services:
 
 ```bash
-cd YOUR_PATH/IntelligentSystem_FootballPrediction
-
-# Update from YAML file (after changes)
-conda env update -f conda/aifootball_predictions.yaml
-
-# Recreate environment (clean start)
-conda env remove -n aifootball_predictions
-conda env create -f conda/aifootball_predictions.yaml
+./run.sh stop
 ```
 
-### Deactivate Environment
+## Run Locally without Docker
+
+Terminal 1, run API:
 
 ```bash
-conda deactivate
+./run.sh api
 ```
 
-## 📊 Project Structure
-
-```
-├── apps/
-│   ├── api/                    # FastAPI backend
-│   │   ├── app/
-│   │   │   ├── main.py        # Entry point
-│   │   │   ├── routers/       # API endpoints
-│   │   │   └── services/      # Business logic
-│   │   └── requirements.txt
-│   ├── web/                    # React web app (Vite)
-│   │   ├── src/
-│   │   └── package.json
-│   └── mobile/                 # React Native app (Expo)
-├── scripts/                    # Data pipeline scripts
-│   ├── data_acquisition.py
-│   ├── data_preprocessing.py
-│   ├── train_models.py
-│   └── make_predictions.py
-├── notebooks/                  # Jupyter notebooks
-├── data/                       # Data directory
-│   ├── raw/                   # Original data
-│   ├── processed/             # Preprocessed data
-│   └── final_predictions.txt
-├── models/                     # Trained ML models
-├── conda/
-│   └── aifootball_predictions.yaml  # Conda environment
-└── README.md
-```
-
-## 🔌 API Endpoints
-
-### User Endpoints (Role: user)
+Terminal 2, run web:
 
 ```bash
-# Get available leagues
-curl http://localhost:8000/api/v1/user/leagues \
-  -H "X-Role: user"
-
-# Get upcoming matches
-curl http://localhost:8000/api/v1/user/matches/upcoming?league=E0 \
-  -H "X-Role: user"
-
-# Get teams in league
-curl http://localhost:8000/api/v1/user/leagues/E0/teams \
-  -H "X-Role: user"
+./run.sh web
 ```
 
-### Admin Endpoints (Role: admin)
+Open:
+
+```text
+http://localhost:5173
+```
+
+## GitHub and Generated Files
+
+The repository is intended to store source code, configuration, and documentation. Large/generated artifacts are ignored:
+
+```text
+data/*/*.csv
+models/*
+apps/api/app/db/*.db
+```
+
+After cloning from GitHub, run the pipeline once to regenerate data and models:
 
 ```bash
-# Get top viewed teams
-curl http://localhost:8000/api/v1/admin/analytics/top-teams \
-  -H "X-Role: admin"
-
-# Get top viewed players
-curl http://localhost:8000/api/v1/admin/analytics/top-players \
-  -H "X-Role: admin"
+uv sync
+./run.sh pipeline
 ```
 
-### Data Scientist Endpoints (Role: data_scientist)
+If you already have generated CSV/model files from another machine, copy them into `data/raw`, `data/processed`, and `models` instead of rerunning the full pipeline.
 
-```bash
-# Get model metrics dashboard
-curl http://localhost:8000/api/v1/data-scientist/dashboard \
-  -H "X-Role: data_scientist"
+## API Notes
+
+Main route groups:
+
+```text
+/api/v1/user/...
+/api/v1/data-scientist/...
+/api/v1/admin/...
+/health
 ```
 
-## 🛠️ Troubleshooting
+Auth and analytics storage:
 
-## 📝 Development Notes
+- Local run without `DATABASE_URL`: SQLite at `apps/api/app/db/analytics.db`
+- Docker Compose: PostgreSQL service `postgres`
 
-- **Python Version:** 3.10 (specified in `conda/aifootball_predictions.yaml`)
-- **Framework:** FastAPI (backend), React (frontend)
-- **Database:** SQLite (analytics)
-- **ML Models:** XGBoost, scikit-learn
-- **GPU Support:** CUDA 11.2, cuDNN 8.1.0 (optional)
+Football data and ML models remain file-based in `data/` and `models/`.
 
-## 📚 Additional Resources
+## Troubleshooting
 
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [React Documentation](https://react.dev/)
-- [Expo Documentation](https://docs.expo.dev/)
-- [Conda Documentation](https://docs.conda.io/)
+If `python` is not found, use `uv run python ...` or `./run.sh ...`.
 
-## 🤝 Contributing
+If data acquisition fails with `Connection reset by peer`, the network is blocking or resetting `football-data.co.uk`. Try another network/VPN or manually download the CSV files and place them in `data/raw`.
 
-1. Activate conda environment
-2. Create feature branch
-3. Make changes
-4. Test thoroughly
-5. Commit with clear messages
+## License
 
-```bash
-conda activate aifootball_predictions
-git checkout -b feature/your-feature
-# ... make changes ...
-git add .
-git commit -m "Add feature description"
-git push
-```
-
-## 📄 License
-
-See LICENSE file for details.
-
-## 👥 Authors
-
-- Project Team - AI Football Prediction System
-- Assignment: Intelligent Systems (HK252)
-
----
-
-**Last Updated:** April 5, 2026
-**Environment:** Conda with Python 3.10
+See `LICENSE` for details.

@@ -190,5 +190,8 @@ node_modules/
 apps/**/node_modules/
 apps/**/.expo/
 apps/**/dist/
+apps/api/app/db/*.db
+apps/api/app/db/*.sqlite3
+apps/api/app/db/*.db-journal
 apps/api/db/*.db
 apps/api/db/*.sqlite3

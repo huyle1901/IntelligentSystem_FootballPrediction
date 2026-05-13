@@ -18,5 +18,6 @@ load_dotenv(dotenv_path=ROOT_DIR / ".env")
 load_dotenv(dotenv_path=Path.home() / ".env")
 
 API_FOOTBALL_DATA = os.getenv("API_FOOTBALL_DATA", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 ALLOWED_ROLES = {"user", "data_scientist", "admin"}
