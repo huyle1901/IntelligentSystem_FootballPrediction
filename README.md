@@ -50,7 +50,32 @@ Notes:
 - Historical CSV acquisition uses football-data.co.uk and does not require an API key.
 - `.env` is ignored by git and should not be committed.
 
-## Quick Start with uv
+## Quick Start
+
+Install Docker Desktop:
+
+- Windows/macOS: install Docker Desktop from https://www.docker.com/products/docker-desktop/
+- Linux: install Docker Engine + Docker Compose plugin (Docker Desktop is optional on Linux).
+
+Verify Docker:
+
+```bash
+docker --version
+docker compose version
+```
+
+Install `uv`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+If `uv` is not found after installation, restart your terminal, then verify:
+
+```bash
+uv --version
+python --version
+```
 
 Install dependencies:
 
@@ -81,7 +106,7 @@ models/E0_random_forest.pkl
 
 The same pattern is generated for `I1`, `SP1`, `F1`, and `D1`.
 
-## Pipeline Commands
+## Pipeline Commands (skip if run `./run.sh pipeline`)
 
 Run each step manually:
 
